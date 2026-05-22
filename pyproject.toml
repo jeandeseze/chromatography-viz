@@ -1,0 +1,14 @@
+[project]
+name = "chromatography-viz"
+version = "0.1.0"
+description = "Streamlit visualization for AKTA Unicorn chromatography data"
+requires-python = ">=3.11"
+dependencies = [
+    "streamlit>=1.30.0",
+    "altair>=5.0.0",
+    "pandas>=2.1.0",
+    "numpy>=1.26.0",
+]
+
+[dependency-groups]
+dev = ["ruff>=0.1.0"]
