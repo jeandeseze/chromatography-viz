@@ -10,6 +10,19 @@ import streamlit as st
 from loaders import load_json_run
 
 st.set_page_config(page_title="Chromatography Viewer", layout="wide")
+
+st.markdown(
+    """
+<style>
+[data-testid="stSidebar"][aria-expanded="true"] {
+    max-width: 600px !important;
+    min-width: 600px !important;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 st.title("Chromatography Data Viewer")
 
 # --- Data directory (auto-detect WSL vs native Windows) ---
