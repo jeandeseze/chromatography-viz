@@ -233,7 +233,7 @@ with tab_chroma:
             height=500,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        st.plotly_chart(fig, use_container_width=True, key="chromatogram")
+        st.plotly_chart(fig, width='stretch', key="chromatogram")
 
 # ================================================================
 # TAB: AUC — pick one run
@@ -346,7 +346,7 @@ with tab_auc:
 
             st.plotly_chart(
                 fig_auc,
-                use_container_width=True,
+                width='stretch',
                 key=f"auc_chart_{auc_widget_key}",
             )
 
@@ -397,7 +397,7 @@ with tab_peaks:
             hovertemplate="Peak: %{x}<br>Area: %{y:,.2f}<extra></extra>",
         )])
         fig_peaks.update_layout(xaxis_title="Peak", yaxis_title="Area", height=350)
-        st.plotly_chart(fig_peaks, use_container_width=True, key="peak_chart")
+        st.plotly_chart(fig_peaks, width='stretch', key="peak_chart")
 
 # ================================================================
 # TAB: Phases — pick one run
@@ -485,7 +485,9 @@ with tab_params:
             except (ValueError, TypeError):
                 return str(v)
 
-        st.dataframe(data_params.set_index("Parameter").style.format(fmt_val))
+        display_params = data_params.copy()
+        display_params["Value"] = display_params["Value"].astype(str)
+        st.dataframe(display_params.set_index("Parameter").style.format(fmt_val))
 
 # ================================================================
 # TAB: System Infos
