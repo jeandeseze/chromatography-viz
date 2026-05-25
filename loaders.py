@@ -22,10 +22,13 @@ def load_json_run(json_path: str) -> dict[str, Any]:
 
     # Build curve list: name -> {name, times, values, amplitude_unit, ...}
     curves = []
+    column_volume = None
     for c in curves_raw:
         times = c.get("subsampled_times", [])
         values = c.get("subsampled_data", [])
         if times and values:
+            if column_volume is None:
+                column_volume = c.get("column_volume")
             curves.append({
                 "name": c["name"],
                 "times": times,
@@ -54,6 +57,7 @@ def load_json_run(json_path: str) -> dict[str, Any]:
         "study_name": study_name,
         "run_info": run_info,
         "column_info": column_info,
+        "column_volume": column_volume,
         "curves": curves,
         "peak_df": peak_df,
         "phase_df": phase_df,
