@@ -126,6 +126,8 @@ def _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_
                 layer="below",
             )
 
+    y_positions = [0.96, 0.92, 0.88]
+    idx = 0
     for run in selected_runs_data:
         raw_phase_df = run.get("phase_df", pd.DataFrame())
         phase_df_filtered = filter_phases(raw_phase_df)
@@ -139,12 +141,14 @@ def _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_
             if e <= s:
                 continue
             mid = (s + e) / 2
+            pos = y_positions[idx % 3]
             fig.add_annotation(
-                x=mid, y=1,
+                x=mid, y=pos,
                 xref="x",
                 yref="paper",
-                yanchor="top",
+                yanchor="bottom",
                 text=f"<i>{pname}</i>",
                 showarrow=False,
                 font=dict(size=10),
             )
+            idx += 1

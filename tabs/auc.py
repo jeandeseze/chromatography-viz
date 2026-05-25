@@ -217,6 +217,8 @@ def _render_auc_phases(fig, auc_phase_df, auc_cv, x_unit):
             layer="below",
         )
 
+    y_positions = [0.96, 0.92, 0.88]
+    idx = 0
     for _, row in auc_phase_df.iterrows():
         pname = row.get("name", "Unknown")
         s = convert_scalar(row["start_time"], auc_phase_df, auc_cv, "min", x_unit)
@@ -224,12 +226,14 @@ def _render_auc_phases(fig, auc_phase_df, auc_cv, x_unit):
         if e <= s:
             continue
         mid = (s + e) / 2
+        pos = y_positions[idx % 3]
         fig.add_annotation(
-            x=mid, y=1,
+            x=mid, y=pos,
             xref="x",
             yref="paper",
-            yanchor="top",
+            yanchor="bottom",
             text=f"<i>{pname}</i>",
             showarrow=False,
             font=dict(size=10),
         )
+        idx += 1

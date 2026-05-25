@@ -35,9 +35,9 @@ for k, default in [
     ("selected_runs", []),
     ("run_data", {}),
     ("auc_range", None),
-    ("auc_range_unit", "min"),
+    ("auc_range_unit", "mL"),
     ("chroma_x_unit", "min"),
-    ("auc_x_unit", "min"),
+    ("auc_x_unit", "mL"),
     ("show_phases", True),
 ]:
     if k not in st.session_state:
