@@ -1,9 +1,10 @@
 import json as _json
+import platform
 from pathlib import Path
 
-import altair as alt
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from loaders import load_json_run
@@ -11,298 +12,471 @@ from loaders import load_json_run
 st.set_page_config(page_title="Chromatography Viewer", layout="wide")
 st.title("Chromatography Data Viewer")
 
-# --- Hardcoded data directory ---
+# --- Data directory (auto-detect WSL vs native Windows) ---
+_SYS_DRIVE = "C:" if platform.system() == "Windows" else "/mnt/c"
 DATA_DIR = Path(
-    r"/mnt/c/Users/JeandeSEZE/Veyton/C-R&D-Process dev - Documents/"
+    f"{_SYS_DRIVE}/Users/JeandeSEZE/Veyton/"
+    r"C-R&D-Process dev - Documents/"
     r"20_Internal Studies/05_Model studies/xtodata"
 )
 
 # --- Session state ---
-if "runs" not in st.session_state:
-    st.session_state.runs = []
-if "run_data" not in st.session_state:
-    st.session_state.run_data = {}
-if "auc_range" not in st.session_state:
-    st.session_state.auc_range = None
+for k, default in [
+    ("selected_runs", []),
+    ("run_data", {}),
+    ("auc_range", None),
+]:
+    if k not in st.session_state:
+        st.session_state[k] = default
 
 # --- Discover json files ---
-if DATA_DIR.is_dir():
-    all_json_files = sorted(
-        str(f) for f in DATA_DIR.iterdir() if f.suffix.lower() == ".json"
-    )
-else:
-    all_json_files = []
+all_json_files = (
+    sorted(str(f) for f in DATA_DIR.iterdir() if f.suffix.lower() == ".json")
+    if DATA_DIR.is_dir()
+    else []
+)
 
 if not all_json_files:
     st.error(f"Data directory not found or empty: {DATA_DIR}")
     st.stop()
 
-# --- Build display names ---
-run_displays = []
+# --- Build run index grouped by study ---
+runs_by_study = {}
 for jp in all_json_files:
     try:
         with open(jp, "r") as f:
             raw = _json.load(f)
         ri = raw.get("run_info", {})
-        study_id = raw.get("study_id", "")
+        study_id = raw.get("study_id", "N/A")
+        study_name = raw.get("study_name", study_id)
         run_name = ri.get("name", Path(jp).stem)
-        display = f"[{study_id}] {run_name}" if study_id else run_name
-        run_displays.append({
+        if study_id not in runs_by_study:
+            runs_by_study[study_id] = {
+                "study_name": study_name,
+                "runs": [],
+            }
+        runs_by_study[study_id]["runs"].append({
             "path": jp,
-            "display": display,
-            "study_id": study_id,
-            "study_name": raw.get("study_name", ""),
+            "run_id": study_id,
+            "run_name": run_name,
+            "display": f"[{study_id}] {run_name}",
+            "study_name": study_name,
             "run_info": ri,
             "column_info": raw.get("column_info", ""),
         })
     except Exception as e:
         st.error(f"Failed to read {Path(jp).name}: {e}")
 
-# --- Multiselect for runs ---
+# ================================================================
+# SIDEBAR: Study + Run selection (expanders per study)
+# ================================================================
 st.sidebar.header("Select Runs")
-selected_displays = [r["display"] for r in run_displays]
-selected_runs = st.sidebar.multiselect(
-    "Available files",
-    selected_displays,
-    key="selected_runs",
+
+all_study_ids = sorted(runs_by_study.keys())
+study_display = {sid: runs_by_study[sid]["study_name"] for sid in all_study_ids}
+
+selected_studies = st.sidebar.multiselect(
+    "Studies",
+    all_study_ids,
+    format_func=lambda sid: study_display[sid],
+    default=[all_study_ids[0]] if all_study_ids else [],
+    key="study_filter",
 )
 
-if not selected_runs:
-    st.info(f"Select one or more runs from the sidebar ({len(run_displays)} available).")
+prev_selected = set(st.session_state.selected_runs)
+new_selected = set()
+
+for sid in selected_studies:
+    info = runs_by_study[sid]
+    with st.sidebar.expander(info["study_name"], expanded=True):
+        for run_meta in info["runs"]:
+            if st.checkbox(
+                run_meta["run_name"],
+                value=(run_meta["path"] in prev_selected),
+                key=f"run_cb_{run_meta['path']}",
+            ):
+                new_selected.add(run_meta["path"])
+
+# Only keep runs that belong to selected studies
+available_paths = set(
+    rm["path"] for sid in selected_studies for rm in runs_by_study[sid]["runs"]
+)
+st.session_state.selected_runs = list(new_selected & available_paths)
+
+if not st.session_state.selected_runs:
+    st.info("Select at least one run from the sidebar.")
     st.stop()
 
-# Build selected run metadata
-idx_map = {r["display"]: i for i, r in enumerate(run_displays)}
-st.session_state.runs = [run_displays[idx_map[d]] for d in selected_runs]
-st.session_state.run_data = {}
+st.sidebar.success(f"{len(st.session_state.selected_runs)} run(s) selected")
 
-st.sidebar.success(f"{len(st.session_state.runs)} run(s) selected")
+# --- Load all selected runs (cached) ---
+for rp in st.session_state.selected_runs:
+    if rp not in st.session_state.run_data:
+        st.session_state.run_data[rp] = load_json_run(rp)
 
-# --- Run selector (when multiple loaded) ---
-if len(st.session_state.runs) == 1:
-    selected_run = st.session_state.runs[0]
-else:
-    display_names = [r["display"] for r in st.session_state.runs]
-    selected_idx = st.selectbox(
-        "Select run to display",
-        range(len(display_names)),
-        format_func=lambda i: display_names[i],
+# --- Build run metadata map ---
+all_runs_flat = [
+    rm for info in runs_by_study.values() for rm in info["runs"]
+]
+path_to_meta = {rm["path"]: rm for rm in all_runs_flat}
+selected_run_metas = [
+    path_to_meta[rp] for rp in st.session_state.selected_runs
+    if rp in path_to_meta
+]
+
+# ================================================================
+# TABS
+# ================================================================
+tab_chroma, tab_auc, tab_peaks, tab_phases, tab_events, tab_params, tab_sysinfo = st.tabs([
+    "Chromatogram", "AUC", "Peaks", "Phases", "Method Events", "Experimental Params", "System Infos"
+])
+
+# --- Helpers ---
+def build_curve_map(run):
+    return {c["name"]: c for c in run["curves"]}
+
+
+def get_common_channels(runs):
+    if not runs:
+        return []
+    curve_sets = [set(c["name"] for c in run["curves"]) for run in runs]
+    common = curve_sets[0].intersection(*curve_sets[1:])
+    return sorted(common)
+
+
+# ================================================================
+# TAB: Chromatogram — overlay all selected runs
+# ================================================================
+with tab_chroma:
+    selected_runs_data = [
+        st.session_state.run_data[rpm["path"]] for rpm in selected_run_metas
+    ]
+    selected_run_labels = [
+        f"{rpm['study_name']} > {rpm['run_name']}" for rpm in selected_run_metas
+    ]
+
+    # Find common channel names across all selected runs
+    common_channels = get_common_channels(selected_runs_data)
+
+    if not common_channels:
+        st.warning("No common channels across selected runs. Showing channels from first run.")
+        common_channels = [c["name"] for c in selected_runs_data[0]["curves"]]
+
+    preferred = ["UV", "Conductivity"]
+    default_channels = [ch for ch in preferred if ch in common_channels]
+    if not default_channels:
+        default_channels = common_channels[:2] if len(common_channels) >= 2 else common_channels
+    selected_channels = st.multiselect(
+        "Channels to display (max 3)",
+        common_channels,
+        default=default_channels,
+        key="chroma_channels",
     )
-    selected_run = st.session_state.runs[selected_idx]
 
-ri = selected_run["run_info"]
-study_id = selected_run.get("study_id", "")
-study_name = selected_run.get("study_name", "")
+    if len(selected_channels) > 3:
+        selected_channels = selected_channels[:3]
+        st.warning("Limited to 3 channels.")
 
-# --- Metadata header ---
-st.subheader(f"Run: {ri.get('name', 'Unknown')}")
-if study_id:
-    st.caption(f"Study: **{study_id}** \u2014 {study_name}")
-
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("System", ri.get("system_name", "-"))
-c2.metric("Version", ri.get("unicorn_version", "-"))
-c3.metric("State", ri.get("run_state", "-"))
-c4.metric("Batch", ri.get("batch_id", "-"))
-c5.metric("Run #", ri.get("run_index", "-"))
-
-if ri.get("created_at"):
-    st.caption(f"Created: {ri['created_at']} by {ri.get('created_by', '-')}")
-col_info = selected_run.get("column_info", "")
-if col_info:
-    st.caption(f"Column: {col_info}")
-
-# --- Load data (cached) ---
-run_path = selected_run["path"]
-if run_path not in st.session_state.run_data:
-    with st.spinner("Loading run data..."):
-        st.session_state.run_data[run_path] = load_json_run(run_path)
-
-run = st.session_state.run_data[run_path]
-st.divider()
-
-# --- Controls (sidebar) ---
-st.sidebar.divider()
-curve_names = [c["name"] for c in run["curves"]]
-curve_map = {c["name"]: c for c in run["curves"]}
-
-selected_curves = st.sidebar.multiselect(
-    "Channels to display",
-    curve_names,
-    default=curve_names[:3] if len(curve_names) >= 3 else curve_names,
-    key="channel_select",
-)
-
-show_peaks_overlay = st.sidebar.checkbox("Show peak markers", value=True, key="peak_overlay")
-show_phases_overlay = st.sidebar.checkbox("Show phase regions", value=True, key="phase_overlay")
-show_events_overlay = st.sidebar.checkbox("Show method events", value=False, key="event_overlay")
-
-# --- Chromatogram ---
-st.header("Chromatogram")
-
-rows = []
-for name in selected_curves:
-    c = curve_map[name]
-    times = c.get("times", [])
-    values = c.get("values", [])
-    if not times:
-        continue
-    for t, v in zip(times, values):
-        rows.append({"time": t, "value": v, "channel": name})
-
-chroma_df = pd.DataFrame(rows)
-
-base = alt.Chart(chroma_df).mark_line(interpolate="linear").encode(
-    x="time:Q",
-    y="value:Q",
-    color="channel:N",
-    tooltip=["time:Q", "value:Q", "channel:N"],
-).interactive()
-
-st.altair_chart(base, use_container_width=True)
-
-# --- Area Under Curve (AUC) ---
-uv_curves = [c for c in run["curves"] if c.get("data_type") == "UV"]
-
-if uv_curves:
-    st.header("Area Under Curve")
-    st.divider()
-
-    uv_curve_names = [c["name"] for c in uv_curves]
-    auc_curve_name = st.selectbox(
-        "UV curve for integration",
-        uv_curve_names,
-        key="auc_curve",
-    )
-    uv_c = curve_map[auc_curve_name]
-    uv_times = np.array(uv_c["times"])
-    uv_values = np.array(uv_c["values"])
-
-    t_min, t_max = float(uv_times.min()), float(uv_times.max())
-
-    unit = uv_c.get("amplitude_unit", "")
-
-    if st.session_state.auc_range is None:
-        st.session_state.auc_range = (t_min, t_max)
-
-    range_start, range_end = st.slider(
-        "Integration range",
-        min_value=t_min,
-        max_value=t_max,
-        value=st.session_state.auc_range,
-        step=0.01,
-        key="auc_range_slider",
-    )
-    st.session_state.auc_range = (range_start, range_end)
-
-    mask = (uv_times >= range_start) & (uv_times <= range_end)
-    seg_times = uv_times[mask]
-    seg_values = uv_values[mask]
-
-    if seg_times.size > 1:
-        auc_value = float(np.trapezoid(seg_values, seg_times))
-        dur = seg_times[-1] - seg_times[0]
+    if not selected_channels:
+        st.info("Select at least one channel.")
     else:
-        auc_value = 0.0
-        dur = 0.0
+        fig = go.Figure()
 
-    auc_c1, auc_c2, auc_c3 = st.columns(3)
-    auc_c1.metric("AUC", f"{auc_value:,.2f}")
-    auc_c2.metric("Range", f"{range_start:.2f} \u2013 {range_end:.2f} min")
-    auc_c3.metric("Duration", f"{dur:.2f} min")
+        for run, run_label in zip(selected_runs_data, selected_run_labels):
+            cmap = build_curve_map(run)
+            for ch_name in selected_channels:
+                if ch_name not in cmap:
+                    continue
+                c = cmap[ch_name]
+                times = c.get("times", [])
+                values = np.array(c.get("values", []))
+                if not times or values.size == 0:
+                    continue
 
-    # Build Altair chart
-    uv_df = pd.DataFrame({"time": uv_times, "value": uv_values})
-    seg_df = pd.DataFrame({"time": seg_times, "value": seg_values})
+                v_min, v_max = values.min(), values.max()
+                v_range = v_max - v_min if v_max != v_min else 1.0
+                scaled = (values - v_min) / v_range
 
-    shaded = (
-        alt.Chart(seg_df)
-        .mark_area(opacity=0.25)
-        .encode(x="time:Q", y="value:Q", color=alt.value("steelblue"))
-    )
+                trace_name = f"{run_label} — {ch_name}"
+                fig.add_trace(go.Scattergl(
+                    x=times,
+                    y=scaled,
+                    mode="lines",
+                    name=trace_name,
+                    hovertemplate=(
+                        f"<b>{trace_name}</b><br>"
+                        f"Time: %{{x:.2f}}<br>"
+                        f"Scaled: %{{y:.3f}}<br>"
+                        f"Raw range: [{v_min:.2f}, {v_max:.2f}]<extra></extra>"
+                    ),
+                    line=dict(width=1.5),
+                ))
 
-    line = (
-        alt.Chart(uv_df)
-        .mark_line(interpolate="linear", strokeWidth=1.5)
-        .encode(
-            x="time:Q",
-            y="value:Q",
-            tooltip=["time:Q", "value:Q"],
-            color=alt.value("steelblue"),
+        fig.update_layout(
+            hovermode="x unified",
+            xaxis_title="Time (min)",
+            yaxis_title="Normalized (0–1)",
+            yaxis_range=[0, 1],
+            height=500,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
-        .interactive()
-    )
+        st.plotly_chart(fig, use_container_width=True, key="chromatogram")
 
-    bound_df = pd.DataFrame({"x": [range_start, range_end]})
-    bounds = (
-        alt.Chart(bound_df)
-        .mark_rule(color="orange", strokeDash=[4, 4], strokeWidth=1.5)
-        .encode(x="x:Q")
-    )
+# ================================================================
+# TAB: AUC — pick one run
+# ================================================================
+with tab_auc:
+    if not selected_run_metas:
+        st.info("Select at least one run from the sidebar.")
+    else:
+        run_option_labels = [
+            f"{rpm['study_name']} > {rpm['run_name']}" for rpm in selected_run_metas
+        ]
+        auc_sel_c1, auc_sel_c2 = st.columns(2)
+        with auc_sel_c1:
+            chosen_run_idx = st.selectbox(
+                "Run",
+                range(len(run_option_labels)),
+                format_func=lambda i: run_option_labels[i],
+                key="auc_run",
+            )
+        with auc_sel_c2:
+            wavelength = st.selectbox(
+                "Wavelength (nm)",
+                [280, 260],
+                index=0,
+                key="auc_wavelength",
+            )
 
-    auc_chart = (shaded + line + bounds).properties(height=450)
-    st.altair_chart(auc_chart, use_container_width=True)
+        chosen_rpm = selected_run_metas[chosen_run_idx]
+        chosen_run = st.session_state.run_data[chosen_rpm["path"]]
+        cmap = build_curve_map(chosen_run)
 
-# --- Peaks ---
-if not run["peak_df"].empty:
-    st.header("Peaks")
-    st.divider()
-    display_cols = [c for c in run["peak_df"].columns if c != "table_name"]
-    st.dataframe(
-        run["peak_df"][display_cols].style.format({
-            c: "{:.2f}" for c in [
-                "start_retention", "max_retention", "end_retention",
-                "width", "width_at_half_height",
-            ] if c in run["peak_df"].columns
-        })
-    )
+        if "UV" not in cmap:
+            st.info("No curve named 'UV' found in this run.")
+        else:
+            uv_c = cmap["UV"]
+            uv_times = np.array(uv_c["times"])
+            uv_values = np.array(uv_c["values"])
+            t_min, t_max = float(uv_times.min()), float(uv_times.max())
+            unit = uv_c.get("amplitude_unit", "")
 
-    peak_df = run["peak_df"]
-    peak_chart = (
-        alt.Chart(peak_df)
-        .mark_bar()
-        .encode(
-            x="name:N",
-            y="area:Q",
-            color=alt.value("steelblue"),
-            tooltip=["name:N", "area:Q", alt.Text("percent_of_total_area:Q", format=".1f")],
+            auc_widget_key = f"{chosen_rpm['path']}:UV"
+
+            if st.session_state.auc_range is None:
+                st.session_state.auc_range = (t_min, t_max)
+
+            new_range = st.slider(
+                "Integration range",
+                min_value=t_min,
+                max_value=t_max,
+                value=st.session_state.auc_range,
+                step=0.01,
+                key=f"auc_slider_{auc_widget_key}",
+            )
+            range_start, range_end = new_range
+
+            interp_times = np.linspace(range_start, range_end, 1000)
+            interp_values = np.interp(interp_times, uv_times, uv_values)
+            auc_raw = float(np.trapezoid(interp_values, interp_times))
+            dur = float(interp_times[-1] - interp_times[0])
+
+            conversion_factors = {280: 0.0001, 260: 0.0002}
+            auc_conc = auc_raw * conversion_factors[wavelength]
+
+            max_pts = 2000
+            if len(uv_times) > max_pts:
+                step = max(1, len(uv_times) // max_pts)
+                plot_t, plot_v = uv_times[::step], uv_values[::step]
+            else:
+                plot_t, plot_v = uv_times, uv_values
+
+            plot_seg_mask = (plot_t >= range_start) & (plot_t <= range_end)
+            plot_seg_t = plot_t[plot_seg_mask]
+            plot_seg_v = plot_v[plot_seg_mask]
+
+            v_at_start = np.interp(range_start, plot_t, plot_v)
+            v_at_end = np.interp(range_end, plot_t, plot_v)
+            fill_t = np.concatenate([[range_start], plot_seg_t, [range_end]])
+            fill_v = np.concatenate([[v_at_start], plot_seg_v, [v_at_end]])
+
+            fig_auc = go.Figure()
+            fig_auc.add_trace(go.Scatter(
+                x=plot_t, y=plot_v, mode="lines", name="UV",
+                line=dict(color="steelblue", width=1.5),
+                hovertemplate=f"Time: %{{x:.2f}}<br>Value: %{{y:.2f}} {unit}<extra></extra>",
+            ))
+
+            if fill_t.size > 2:
+                fig_auc.add_trace(go.Scatter(
+                    x=np.concatenate([fill_t, fill_t[::-1]]),
+                    y=np.concatenate([fill_v, np.zeros_like(fill_v)]),
+                    fill="toself", fillcolor="rgba(70, 130, 180, 0.25)",
+                    line=dict(color="rgba(70, 130, 180, 0)"),
+                    hoverinfo="skip", showlegend=False,
+                ))
+
+            pv_min, pv_max = min(plot_v), max(plot_v)
+            fig_auc.add_shape(
+                type="line", x0=range_start, y0=pv_min, x1=range_start, y1=pv_max,
+                line=dict(color="orange", width=2, dash="dash"))
+            fig_auc.add_shape(
+                type="line", x0=range_end, y0=pv_min, x1=range_end, y1=pv_max,
+                line=dict(color="orange", width=2, dash="dash"))
+
+            fig_auc.update_layout(
+                hovermode="x unified",
+                xaxis_title="Time (min)",
+                yaxis_title=f"Signal ({unit})" if unit else "Signal",
+                height=450,
+            )
+
+            st.plotly_chart(
+                fig_auc,
+                use_container_width=True,
+                key=f"auc_chart_{auc_widget_key}",
+            )
+
+            auc_c1, auc_c2, auc_c3, auc_c4 = st.columns(4)
+            auc_c1.metric("AUC", f"{auc_raw:,.2f} {unit}.min")
+            auc_c2.metric("Range", f"{range_start:.2f} \u2013 {range_end:.2f} min")
+            auc_c3.metric("Duration", f"{dur:.2f} min")
+            auc_c4.metric("Mass", f"{auc_conc:,.4f} mg")
+
+# ================================================================
+# TAB: Peaks — pick one run
+# ================================================================
+with tab_peaks:
+    runs_with_peaks = [
+        rpm for rpm in selected_run_metas
+        if not st.session_state.run_data[rpm["path"]]["peak_df"].empty
+    ]
+
+    if not runs_with_peaks:
+        st.info("No selected runs have peak data.")
+    else:
+        peak_run_labels = [
+            f"{rpm['study_name']} > {rpm['run_name']}" for rpm in runs_with_peaks
+        ]
+        peak_idx = st.selectbox(
+            "Run",
+            range(len(peak_run_labels)),
+            format_func=lambda i: peak_run_labels[i],
+            key="peaks_run",
         )
-        .properties(height=350)
-    )
-    st.altair_chart(peak_chart, use_container_width=True)
+        peak_run = st.session_state.run_data[runs_with_peaks[peak_idx]["path"]]
+        peak_df = peak_run["peak_df"]
 
-# --- Phases ---
-if not run["phase_df"].empty:
-    st.header("Phases")
-    st.divider()
-    st.dataframe(run["phase_df"])
+        display_cols = [c for c in peak_df.columns if c != "table_name"]
+        st.dataframe(
+            peak_df[display_cols].style.format({
+                c: "{:.2f}" for c in [
+                    "start_retention", "max_retention", "end_retention",
+                    "width", "width_at_half_height",
+                ] if c in peak_df.columns
+            })
+        )
 
-# --- Method Events ---
-if not run["event_df"].empty:
-    st.header("Method Events")
-    st.divider()
-    st.dataframe(run["event_df"])
+        fig_peaks = go.Figure(data=[go.Bar(
+            x=peak_df["name"],
+            y=peak_df["area"],
+            marker_color="steelblue",
+            hovertemplate="Peak: %{x}<br>Area: %{y:,.2f}<extra></extra>",
+        )])
+        fig_peaks.update_layout(xaxis_title="Peak", yaxis_title="Area", height=350)
+        st.plotly_chart(fig_peaks, use_container_width=True, key="peak_chart")
 
-# --- Experimental Params ---
-if run["exp_params"]:
-    st.header("Experimental Params")
-    st.divider()
-    params_df = pd.DataFrame(list(run["exp_params"].items()), columns=["Parameter", "Value"])
-    meta_keys = {"excel_row", "excel_match_date", "excel_match_run"}
-    data_params = params_df[~params_df["Parameter"].isin(meta_keys)]
-    meta_params = params_df[params_df["Parameter"].isin(meta_keys)]
+# ================================================================
+# TAB: Phases — pick one run
+# ================================================================
+with tab_phases:
+    runs_with_phases = [
+        rpm for rpm in selected_run_metas
+        if not st.session_state.run_data[rpm["path"]]["phase_df"].empty
+    ]
 
-    if not meta_params.empty:
-        st.caption("Excel match: " + ", ".join(
-            f"{row['Parameter']}={row['Value']}" for _, row in meta_params.iterrows()
-        ))
+    if not runs_with_phases:
+        st.info("No selected runs have phase data.")
+    else:
+        phase_run_labels = [
+            f"{rpm['study_name']} > {rpm['run_name']}" for rpm in runs_with_phases
+        ]
+        phase_idx = st.selectbox(
+            "Run",
+            range(len(phase_run_labels)),
+            format_func=lambda i: phase_run_labels[i],
+            key="phases_run",
+        )
+        st.dataframe(st.session_state.run_data[runs_with_phases[phase_idx]["path"]]["phase_df"])
 
-    def fmt_val(v):
-        try:
-            return f"{float(v):.4g}"
-        except (ValueError, TypeError):
-            return str(v)
+# ================================================================
+# TAB: Method Events — pick one run
+# ================================================================
+with tab_events:
+    runs_with_events = [
+        rpm for rpm in selected_run_metas
+        if not st.session_state.run_data[rpm["path"]]["event_df"].empty
+    ]
 
-    st.dataframe(
-        data_params.set_index("Parameter").style.format(fmt_val)
-    )
+    if not runs_with_events:
+        st.info("No selected runs have method events.")
+    else:
+        evt_run_labels = [
+            f"{rpm['study_name']} > {rpm['run_name']}" for rpm in runs_with_events
+        ]
+        evt_idx = st.selectbox(
+            "Run",
+            range(len(evt_run_labels)),
+            format_func=lambda i: evt_run_labels[i],
+            key="events_run",
+        )
+        st.dataframe(st.session_state.run_data[runs_with_events[evt_idx]["path"]]["event_df"])
+
+# ================================================================
+# TAB: Experimental Params — pick one run
+# ================================================================
+with tab_params:
+    runs_with_params = [
+        rpm for rpm in selected_run_metas
+        if st.session_state.run_data[rpm["path"]]["exp_params"]
+    ]
+
+    if not runs_with_params:
+        st.info("No selected runs have experimental parameters.")
+    else:
+        param_run_labels = [
+            f"{rpm['study_name']} > {rpm['run_name']}" for rpm in runs_with_params
+        ]
+        param_idx = st.selectbox(
+            "Run",
+            range(len(param_run_labels)),
+            format_func=lambda i: param_run_labels[i],
+            key="params_run",
+        )
+        param_run = st.session_state.run_data[runs_with_params[param_idx]["path"]]
+        params_df = pd.DataFrame(
+            list(param_run["exp_params"].items()), columns=["Parameter", "Value"])
+        meta_keys = {"excel_row", "excel_match_date", "excel_match_run"}
+        data_params = params_df[~params_df["Parameter"].isin(meta_keys)]
+        meta_params = params_df[params_df["Parameter"].isin(meta_keys)]
+
+        if not meta_params.empty:
+            st.caption("Excel match: " + ", ".join(
+                f"{row['Parameter']}={row['Value']}"
+                for _, row in meta_params.iterrows()
+            ))
+
+        def fmt_val(v):
+            try:
+                return f"{float(v):.4g}"
+            except (ValueError, TypeError):
+                return str(v)
+
+        st.dataframe(data_params.set_index("Parameter").style.format(fmt_val))
+
+# ================================================================
+# TAB: System Infos
+# ================================================================
+with tab_sysinfo:
+    first_ri = selected_run_metas[0]["run_info"]
+    st.json(first_ri)
