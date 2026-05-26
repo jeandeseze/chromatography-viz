@@ -94,6 +94,16 @@ def get_x_label(unit: str) -> str:
     return "Column Volumes (CV)"
 
 
+def get_elution_start(phase_df: pd.DataFrame) -> float | None:
+    """Return the start_time of the Elution phase, or None if not found."""
+    if phase_df.empty or "name" not in phase_df.columns:
+        return None
+    for _, row in phase_df.iterrows():
+        if row.get("name", "").strip().lower() == "elution":
+            return float(row["start_time"])
+    return None
+
+
 def phase_colors(name: str) -> str:
     """Generate a consistent RGBA color for a phase name."""
     palette = {
