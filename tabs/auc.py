@@ -3,7 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from units import (
+from utils import (
+    compute_auc,
     convert_scalar,
     convert_times,
     filter_phases,
@@ -78,13 +79,8 @@ def render(selected_run_metas: list[dict]) -> None:
     range_start_t = convert_scalar(range_start_disp, auc_phase_df, auc_cv, x_unit, "min")
     range_end_t = convert_scalar(range_end_disp, auc_phase_df, auc_cv, x_unit, "min")
 
-    interp_times = np.linspace(range_start_t, range_end_t, 1000)
-    interp_values = np.interp(interp_times, uv_times, uv_values)
+    auc_raw = compute_auc(uv_times, uv_values, auc_phase_df, auc_cv, range_start_t, range_end_t)
 
-    interp_volumes = convert_times(interp_times, auc_phase_df, auc_cv, "mL")
-    auc_raw = float(np.trapezoid(interp_values, interp_volumes))
-
-    dur_t = float(interp_times[-1] - interp_times[0])
     dur_disp = range_end_disp - range_start_disp
 
     conversion_factors = {280: 0.0001, 260: 0.0002}

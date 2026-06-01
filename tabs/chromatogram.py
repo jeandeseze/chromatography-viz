@@ -3,11 +3,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from units import (
+from utils import (
     convert_scalar,
     convert_times,
     filter_phases,
     get_elution_start,
+    get_equilibration_start,
+    get_loading_start,
     get_x_label,
     phase_colors,
 )
@@ -45,7 +47,14 @@ def render(selected_run_metas: list[dict]) -> None:
 
     normalize = st.checkbox("Normalize curves", value=True, key="chroma_normalize")
 
-    align_elution = st.checkbox("Align to elution start", value=False, key="chroma_align_elution")
+    align_col, _ = st.columns([1, 3])
+    with align_col:
+        align_mode = st.selectbox(
+            "Align to phase start",
+            options=["None", "Elution start", "Loading start", "Equilibration start"],
+            index=0,
+            key="chroma_align_mode",
+        )
 
     if len(selected_channels) > 3:
         selected_channels = selected_channels[:3]
@@ -73,11 +82,17 @@ def render(selected_run_metas: list[dict]) -> None:
         phase_df_filtered = filter_phases(raw_phase_df)
         run_cv = run.get("column_volume", col_vol)
 
-        elution_offset = None
-        if align_elution:
-            elution_time = get_elution_start(raw_phase_df)
-            if elution_time is not None:
-                elution_offset = convert_scalar(elution_time, phase_df_filtered, run_cv, "min", x_unit)
+        align_offset = None
+        if align_mode != "None":
+            phase_start = None
+            if align_mode == "Elution start":
+                phase_start = get_elution_start(raw_phase_df)
+            elif align_mode == "Loading start":
+                phase_start = get_loading_start(raw_phase_df)
+            elif align_mode == "Equilibration start":
+                phase_start = get_equilibration_start(raw_phase_df)
+            if phase_start is not None:
+                align_offset = convert_scalar(phase_start, phase_df_filtered, run_cv, "min", x_unit)
 
         for ch_name in selected_channels:
             if ch_name not in cmap:
@@ -99,8 +114,8 @@ def render(selected_run_metas: list[dict]) -> None:
 
             x_vals = convert_times(times, phase_df_filtered, run_cv, x_unit)
 
-            if align_elution and elution_offset is not None:
-                x_vals = np.array(x_vals) - elution_offset
+            if align_mode != "None" and align_offset is not None:
+                x_vals = np.array(x_vals) - align_offset
 
             if dual_axis and ch_name == left_ch:
                 yaxis = "y"
@@ -128,11 +143,11 @@ def render(selected_run_metas: list[dict]) -> None:
             ))
 
     if show_phases:
-        _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_unit, align_elution)
+        _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_unit, align_mode)
 
     layout_kwargs = {
         "hovermode": "x unified",
-        "xaxis_title": x_label if not align_elution else f"{x_label} (offset to elution start)",
+        "xaxis_title": x_label if align_mode == "None" else f"{x_label} (offset to {align_mode})",
         "height": 500,
         "margin": dict(b=50),
         "legend": dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -170,7 +185,7 @@ def render(selected_run_metas: list[dict]) -> None:
     _render_params_table(selected_run_metas, selected_runs_data)
 
 
-def _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_unit, align_elution=False):
+def _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_unit, align_mode="None"):
     for run, run_label in zip(selected_runs_data, selected_run_metas):
         raw_phase_df = run.get("phase_df", pd.DataFrame())
         phase_df_filtered = filter_phases(raw_phase_df)
@@ -178,11 +193,17 @@ def _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_
             continue
         run_cv = run.get("column_volume", col_vol)
 
-        elution_offset = None
-        if align_elution:
-            elution_time = get_elution_start(raw_phase_df)
-            if elution_time is not None:
-                elution_offset = convert_scalar(elution_time, phase_df_filtered, run_cv, "min", x_unit)
+        align_offset = None
+        if align_mode != "None":
+            phase_start = None
+            if align_mode == "Elution start":
+                phase_start = get_elution_start(raw_phase_df)
+            elif align_mode == "Loading start":
+                phase_start = get_loading_start(raw_phase_df)
+            elif align_mode == "Equilibration start":
+                phase_start = get_equilibration_start(raw_phase_df)
+            if phase_start is not None:
+                align_offset = convert_scalar(phase_start, phase_df_filtered, run_cv, "min", x_unit)
 
         for _, row in phase_df_filtered.iterrows():
             pname = row.get("name", "Unknown")
@@ -190,9 +211,9 @@ def _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_
             e = convert_scalar(row["end_time"], phase_df_filtered, run_cv, "min", x_unit)
             if e <= s:
                 continue
-            if align_elution and elution_offset is not None:
-                s = s - elution_offset
-                e = e - elution_offset
+            if align_mode != "None" and align_offset is not None:
+                s = s - align_offset
+                e = e - align_offset
             fig.add_vrect(
                 x0=s, x1=e,
                 fillcolor=phase_colors(pname),
@@ -209,11 +230,17 @@ def _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_
             continue
         run_cv = run.get("column_volume", col_vol)
 
-        elution_offset = None
-        if align_elution:
-            elution_time = get_elution_start(raw_phase_df)
-            if elution_time is not None:
-                elution_offset = convert_scalar(elution_time, phase_df_filtered, run_cv, "min", x_unit)
+        align_offset = None
+        if align_mode != "None":
+            phase_start = None
+            if align_mode == "Elution start":
+                phase_start = get_elution_start(raw_phase_df)
+            elif align_mode == "Loading start":
+                phase_start = get_loading_start(raw_phase_df)
+            elif align_mode == "Equilibration start":
+                phase_start = get_equilibration_start(raw_phase_df)
+            if phase_start is not None:
+                align_offset = convert_scalar(phase_start, phase_df_filtered, run_cv, "min", x_unit)
 
         for _, row in phase_df_filtered.iterrows():
             pname = row.get("name", "Unknown")
@@ -222,8 +249,8 @@ def _render_phase_bands(fig, selected_runs_data, selected_run_metas, col_vol, x_
             if e <= s:
                 continue
             mid = (s + e) / 2
-            if align_elution and elution_offset is not None:
-                mid = mid - elution_offset
+            if align_mode != "None" and align_offset is not None:
+                mid = mid - align_offset
             pos = y_positions[idx % 3]
             fig.add_annotation(
                 x=mid, y=pos,

@@ -4,6 +4,30 @@ import numpy as np
 import pandas as pd
 
 
+def compute_auc(
+    uv_times: np.ndarray,
+    uv_values: np.ndarray,
+    phase_df: pd.DataFrame,
+    column_volume,
+    range_start_min: float,
+    range_end_min: float,
+    n_points: int = 1000,
+) -> float:
+    """Compute AUC (signal integrated over volume) for a time range.
+
+    UV signal is interpolated to ``n_points`` evenly-spaced time values
+    within ``[range_start_min, range_end_min]``.  Time points are converted
+    to volume (mL) via piecewise-linear interpolation of phase boundaries,
+    then trapezoidal integration is performed with respect to volume.
+
+    Returns the raw AUC in ``signal_unit * mL``.
+    """
+    interp_times = np.linspace(range_start_min, range_end_min, n_points)
+    interp_values = np.interp(interp_times, uv_times, uv_values)
+    interp_volumes = convert_times(interp_times, phase_df, column_volume, "mL")
+    return float(np.trapezoid(interp_values, interp_volumes))
+
+
 def filter_phases(phase_df: pd.DataFrame) -> pd.DataFrame:
     """Remove phases before Equilibration."""
     if phase_df.empty or "name" not in phase_df.columns:
@@ -100,6 +124,26 @@ def get_elution_start(phase_df: pd.DataFrame) -> float | None:
         return None
     for _, row in phase_df.iterrows():
         if row.get("name", "").strip().lower() == "elution":
+            return float(row["start_time"])
+    return None
+
+
+def get_loading_start(phase_df: pd.DataFrame) -> float | None:
+    """Return the start_time of the Sample Application (loading) phase, or None."""
+    if phase_df.empty or "name" not in phase_df.columns:
+        return None
+    for _, row in phase_df.iterrows():
+        if row.get("name", "").strip().lower() in ("sample application", "loading"):
+            return float(row["start_time"])
+    return None
+
+
+def get_equilibration_start(phase_df: pd.DataFrame) -> float | None:
+    """Return the start_time of the Equilibration phase, or None if not found."""
+    if phase_df.empty or "name" not in phase_df.columns:
+        return None
+    for _, row in phase_df.iterrows():
+        if row.get("name", "").strip().lower() == "equilibration":
             return float(row["start_time"])
     return None
 
