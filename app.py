@@ -1,5 +1,4 @@
 import os
-import platform
 from pathlib import Path
 
 import streamlit as st
@@ -24,15 +23,16 @@ st.markdown(
 
 st.title("Chromatography Data Viewer")
 
-_SYS_DRIVE = "C:" if platform.system() == "Windows" else "/mnt/c"
-_DEFAULT_DATA_DIR = (
-    f"{_SYS_DRIVE}/Users/JeandeSEZE/Veyton/"
-    r"C-R&D-Process dev - Documents/"
-    r"20_Internal Studies/05_Model studies/xtodata"
+# Data directory: defaults to the ./data folder next to app.py, so it works
+# both locally and on Azure (where the package unpacks to /home/site/wwwroot).
+# The "Run batch export" button keeps this folder in sync with the latest
+# exports. Override with CHROMA_DATA_DIR to point the app elsewhere.
+DATA_DIR = Path(
+    os.environ.get(
+        "CHROMA_DATA_DIR",
+        str(Path(__file__).resolve().parent / "data"),
+    )
 )
-# Override with CHROMA_DATA_DIR. The Azure deployment points this at the
-# self-contained dataset baked into the image; local runs keep the default.
-DATA_DIR = Path(os.environ.get("CHROMA_DATA_DIR", _DEFAULT_DATA_DIR))
 
 # --- Session state ---
 for k, default in [
@@ -57,7 +57,7 @@ if not all_json_files:
 runs_by_study = build_run_index(all_json_files)
 
 # --- Sidebar selection ---
-render_sidebar(runs_by_study)
+render_sidebar(runs_by_study, DATA_DIR)
 
 # --- Load selected runs ---
 st.session_state.run_data = load_selected_runs(

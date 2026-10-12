@@ -9,9 +9,34 @@ BATCH_EXPORT_SCRIPT = (
     / "../../Julia/AKTAUnicornParser/scripts/batch_export.jl"
 ).resolve()
 
+# Where batch_export.jl writes its JSON exports (its configured output_dir).
+# After a successful run we copy these into the app's data folder so it stays
+# self-contained and ready to deploy.
+BATCH_EXPORT_OUTPUT_DIR = (
+    "/mnt/c/Users/JeandeSEZE/Veyton/"
+    "C-R&D-Process dev - Documents/"
+    "20_Internal Studies/05_Model studies/xtodata"
+)
 
-def _run_batch_export() -> None:
-    """Run the Julia batch export script and report the result in the sidebar."""
+
+def _copy_exports_to(data_dir: Path) -> int:
+    """Copy freshly exported JSON files into the app's data directory.
+
+    Returns the number of files copied (0 if the source folder is missing).
+    """
+    src = Path(BATCH_EXPORT_OUTPUT_DIR)
+    if not src.is_dir():
+        return 0
+    data_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for f in sorted(src.glob("*.json")):
+        shutil.copy2(f, data_dir / f.name)
+        copied += 1
+    return copied
+
+
+def _run_batch_export(data_dir: Path) -> None:
+    """Run the Julia batch export script, then sync its output into data_dir."""
     if not BATCH_EXPORT_SCRIPT.is_file():
         st.error(f"Batch export script not found: {BATCH_EXPORT_SCRIPT}")
         return
@@ -34,9 +59,13 @@ def _run_batch_export() -> None:
             st.error("Batch export timed out after 1 hour.")
             return
     if proc.returncode == 0:
-        # Refresh the run cache so newly exported JSON files are picked up.
+        # Sync the fresh exports into the app's data folder, then refresh the
+        # run cache so newly exported JSON files are picked up.
+        n = _copy_exports_to(data_dir)
         st.session_state.run_data = {}
-        st.success("Batch export finished successfully.")
+        st.success(
+            f"Batch export finished — synced {n} JSON file(s) into the data folder."
+        )
     else:
         st.error(f"Batch export failed (exit code {proc.returncode}).")
     if proc.stdout:
@@ -45,13 +74,13 @@ def _run_batch_export() -> None:
         st.code(proc.stderr[-4000:], language=None)
 
 
-def render_sidebar(runs_by_study: dict) -> None:
+def render_sidebar(runs_by_study: dict, data_dir: Path) -> None:
     """Render sidebar with study filter and run checkboxes."""
     # Batch export runs a local Julia script; only offer it where that script
     # exists (i.e. not in the self-contained Azure deployment).
     if BATCH_EXPORT_SCRIPT.is_file():
         if st.sidebar.button("Run batch export", type="primary", width="stretch"):
-            _run_batch_export()
+            _run_batch_export(data_dir)
 
     st.sidebar.header("Select Runs")
 

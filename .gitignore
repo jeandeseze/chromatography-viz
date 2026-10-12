@@ -13,3 +13,6 @@ wheels/
 # time, not committed. Drop new exports here before rebuilding.
 data/*
 !data/README.md
+
+# Local editor / VS Code deploy config (user-specific, not part of the app)
+.vscode/
