@@ -12,3 +12,8 @@ dependencies = [
 
 [dependency-groups]
 dev = ["ruff>=0.1.0", "pytest>=7.0.0"]
+
+[tool.pytest.ini_options]
+# Make `pytest` work from the repo root (tests import top-level modules like `utils`).
+pythonpath = ["."]
+testpaths = ["tests"]

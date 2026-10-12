@@ -1,3 +1,4 @@
+import os
 import platform
 from pathlib import Path
 
@@ -24,11 +25,14 @@ st.markdown(
 st.title("Chromatography Data Viewer")
 
 _SYS_DRIVE = "C:" if platform.system() == "Windows" else "/mnt/c"
-DATA_DIR = Path(
+_DEFAULT_DATA_DIR = (
     f"{_SYS_DRIVE}/Users/JeandeSEZE/Veyton/"
     r"C-R&D-Process dev - Documents/"
     r"20_Internal Studies/05_Model studies/xtodata"
 )
+# Override with CHROMA_DATA_DIR. The Azure deployment points this at the
+# self-contained dataset baked into the image; local runs keep the default.
+DATA_DIR = Path(os.environ.get("CHROMA_DATA_DIR", _DEFAULT_DATA_DIR))
 
 # --- Session state ---
 for k, default in [

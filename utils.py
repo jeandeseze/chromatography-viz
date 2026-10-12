@@ -28,6 +28,24 @@ def compute_auc(
     return float(np.trapezoid(interp_values, interp_volumes))
 
 
+def format_channel_title(name: str, unit: str = "") -> str:
+    """Format a channel name for display, appending its unit.
+
+    The unit is omitted when missing or already present in the name
+    (e.g. channel "Flow (CV/h)" with unit "CV/h").
+    """
+    unit = (unit or "").strip()
+    if not unit or unit in name:
+        return name
+    return f"{name} ({unit})"
+
+
+def unit_suffix(unit: str = "") -> str:
+    """Return a display suffix like ``' MPa'`` for hover labels; empty when no unit."""
+    unit = (unit or "").strip()
+    return f" {unit}" if unit else ""
+
+
 def filter_phases(phase_df: pd.DataFrame) -> pd.DataFrame:
     """Remove phases before Equilibration."""
     if phase_df.empty or "name" not in phase_df.columns:

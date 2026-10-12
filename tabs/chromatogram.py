@@ -7,11 +7,13 @@ from utils import (
     convert_scalar,
     convert_times,
     filter_phases,
+    format_channel_title,
     get_elution_start,
     get_equilibration_start,
     get_loading_start,
     get_x_label,
     phase_colors,
+    unit_suffix,
 )
 from ui_helpers import build_curve_map, get_common_channels, xaxis_selector
 
@@ -68,6 +70,12 @@ def render(selected_run_metas: list[dict]) -> None:
     col_vol = selected_runs_data[0].get("column_volume")
     x_label = get_x_label(x_unit)
 
+    # name -> amplitude_unit (first occurrence wins)
+    channel_units: dict[str, str] = {}
+    for run in selected_runs_data:
+        for c in run["curves"]:
+            channel_units.setdefault(c.get("name", ""), c.get("amplitude_unit", ""))
+
     fig = go.Figure()
     left_values = []
     right_values = []
@@ -104,13 +112,14 @@ def render(selected_run_metas: list[dict]) -> None:
                 continue
 
             plot_values = values
+            unit_str = unit_suffix(c.get("amplitude_unit", ""))
             if normalize:
                 v_min, v_max = values.min(), values.max()
                 v_range = v_max - v_min if v_max != v_min else 1.0
                 plot_values = (values - v_min) / v_range
-                hover_extra = f"Scaled: %{{y:.3f}}<br>Raw range: [{v_min:.2f}, {v_max:.2f}]"
+                hover_extra = f"Scaled: %{{y:.3f}}<br>Raw range: [{v_min:.2f}, {v_max:.2f}]{unit_str}"
             else:
-                hover_extra = f"Value: %{{y:.3f}}"
+                hover_extra = f"Value: %{{y:.3f}}{unit_str}"
 
             x_vals = convert_times(times, phase_df_filtered, run_cv, x_unit)
 
@@ -127,7 +136,7 @@ def render(selected_run_metas: list[dict]) -> None:
                 yaxis = "y"
                 left_values.extend(plot_values.tolist())
 
-            trace_name = f"{run_label} — {ch_name}"
+            trace_name = f"{run_label} — {format_channel_title(ch_name, c.get('amplitude_unit', ''))}"
             fig.add_trace(go.Scattergl(
                 x=x_vals,
                 y=plot_values,
@@ -161,17 +170,22 @@ def render(selected_run_metas: list[dict]) -> None:
             pad = (mx - mn) * 0.05 if mx != mn else 1.0
             return [mn - pad, mx + pad]
 
-        layout_kwargs["yaxis_title"] = left_ch
+        layout_kwargs["yaxis_title"] = format_channel_title(left_ch, channel_units.get(left_ch, ""))
         layout_kwargs["yaxis_range"] = _range(left_values)
         layout_kwargs["yaxis2"] = {
-            "title": right_ch,
+            "title": format_channel_title(right_ch, channel_units.get(right_ch, "")),
             "overlaying": "y",
             "side": "right",
             "range": _range(right_values),
         }
     else:
         all_values = left_values + right_values
-        y_title = "Normalized (0–1)" if normalize else "Raw Signal"
+        if normalize:
+            y_title = "Normalized (0–1)"
+        elif len(selected_channels) == 1:
+            y_title = format_channel_title(selected_channels[0], channel_units.get(selected_channels[0], ""))
+        else:
+            y_title = "Raw Signal"
         layout_kwargs["yaxis_title"] = y_title
         layout_kwargs["yaxis_range"] = [0, 1] if normalize else None
         if not normalize and all_values:

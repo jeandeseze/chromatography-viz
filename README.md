@@ -25,27 +25,30 @@ uv sync
 
 ## Usage
 
-Set the data directory path in `app.py` (line 27) to point to the folder containing your AKTA Unicorn JSON export files, then run:
-
-```bash
-streamlit run app.py
-```
-
-The app serves on port **8506** (configurable in `.streamlit/config.toml`).
-
-### Making the data directory configurable
-
-The data directory is currently hardcoded in `app.py`. To change it without editing the source, you can override it via environment variable by replacing the `DATA_DIR` block in `app.py` with:
-
-```python
-import os
-DATA_DIR = Path(os.environ.get("CHROMA_DATA_DIR", "<default path>"))
-```
-
-Then launch with:
+The data directory is read from the `CHROMA_DATA_DIR` environment variable
+(defaults to your local AKTA export folder, so local runs work out of the box).
+To point at a specific folder, set it before launching:
 
 ```bash
 CHROMA_DATA_DIR=/path/to/json/exports streamlit run app.py
+```
+
+The app serves on port **8506** (configurable in `.streamlit/config.toml`);
+on Azure it binds to the port App Service assigns via `$PORT`.
+
+## Deployment (Azure App Service)
+
+The app is stateless and reads data from `CHROMA_DATA_DIR`, which makes it a
+natural fit for a **self-contained** Azure App Service deployment: the dataset
+is bundled into the deployment package and redeployed whenever the data
+changes. No Docker, no database.
+
+See [`azure/README.md`](azure/README.md) for the full guide. In short:
+
+```bash
+az login
+cp /path/to/new_exports/*.json data/   # put your JSON exports in ./data
+./azure/deploy.sh                       # create/update the Web App + deploy
 ```
 
 ## Project Structure

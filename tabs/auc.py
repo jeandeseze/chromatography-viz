@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from ui_helpers import build_curve_map, xaxis_selector
 from utils import (
     compute_auc,
     convert_scalar,
@@ -12,7 +13,6 @@ from utils import (
     get_x_label,
     phase_colors,
 )
-from ui_helpers import build_curve_map, xaxis_selector
 
 
 def render(selected_run_metas: list[dict]) -> None:
@@ -62,7 +62,9 @@ def render(selected_run_metas: list[dict]) -> None:
 
     _sync_auc_range(x_unit, auc_phase_df, auc_cv, t_min, t_max)
 
-    s_min, s_max, slider_step = _slider_bounds(x_unit, auc_phase_df, auc_cv, t_min, t_max)
+    s_min, s_max, slider_step = _slider_bounds(
+        x_unit, auc_phase_df, auc_cv, t_min, t_max
+    )
 
     new_range = st.slider(
         "Integration range",
@@ -76,14 +78,18 @@ def render(selected_run_metas: list[dict]) -> None:
     range_start_disp, range_end_disp = new_range
     st.session_state.auc_range = new_range
 
-    range_start_t = convert_scalar(range_start_disp, auc_phase_df, auc_cv, x_unit, "min")
+    range_start_t = convert_scalar(
+        range_start_disp, auc_phase_df, auc_cv, x_unit, "min"
+    )
     range_end_t = convert_scalar(range_end_disp, auc_phase_df, auc_cv, x_unit, "min")
 
-    auc_raw = compute_auc(uv_times, uv_values, auc_phase_df, auc_cv, range_start_t, range_end_t)
+    auc_raw = compute_auc(
+        uv_times, uv_values, auc_phase_df, auc_cv, range_start_t, range_end_t
+    )
 
     dur_disp = range_end_disp - range_start_disp
 
-    conversion_factors = {280: 0.0001, 260: 0.0002}
+    conversion_factors = {280: 0.0004, 260: 0.0002}
     auc_conc = auc_raw * conversion_factors[wavelength]
 
     max_pts = 2000
@@ -105,28 +111,47 @@ def render(selected_run_metas: list[dict]) -> None:
     fill_v = np.concatenate([[v_at_start], plot_seg_v, [v_at_end]])
 
     fig_auc = go.Figure()
-    fig_auc.add_trace(go.Scatter(
-        x=plot_x, y=plot_v, mode="lines", name="UV",
-        line=dict(color="steelblue", width=1.5),
-        hovertemplate=f"{x_label}: %{{x:.2f}}<br>Value: %{{y:.2f}} {amp_unit}<extra></extra>",
-    ))
+    fig_auc.add_trace(
+        go.Scatter(
+            x=plot_x,
+            y=plot_v,
+            mode="lines",
+            name="UV",
+            line=dict(color="steelblue", width=1.5),
+            hovertemplate=f"{x_label}: %{{x:.2f}}<br>Value: %{{y:.2f}} {amp_unit}<extra></extra>",
+        )
+    )
 
     if fill_x.size > 2:
-        fig_auc.add_trace(go.Scatter(
-            x=np.concatenate([fill_x, fill_x[::-1]]),
-            y=np.concatenate([fill_v, np.zeros_like(fill_v)]),
-            fill="toself", fillcolor="rgba(70, 130, 180, 0.25)",
-            line=dict(color="rgba(70, 130, 180, 0)"),
-            hoverinfo="skip", showlegend=False,
-        ))
+        fig_auc.add_trace(
+            go.Scatter(
+                x=np.concatenate([fill_x, fill_x[::-1]]),
+                y=np.concatenate([fill_v, np.zeros_like(fill_v)]),
+                fill="toself",
+                fillcolor="rgba(70, 130, 180, 0.25)",
+                line=dict(color="rgba(70, 130, 180, 0)"),
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
 
     pv_min, pv_max = float(min(plot_v)), float(max(plot_v))
     fig_auc.add_shape(
-        type="line", x0=range_start_disp, y0=pv_min, x1=range_start_disp, y1=pv_max,
-        line=dict(color="orange", width=2, dash="dash"))
+        type="line",
+        x0=range_start_disp,
+        y0=pv_min,
+        x1=range_start_disp,
+        y1=pv_max,
+        line=dict(color="orange", width=2, dash="dash"),
+    )
     fig_auc.add_shape(
-        type="line", x0=range_end_disp, y0=pv_min, x1=range_end_disp, y1=pv_max,
-        line=dict(color="orange", width=2, dash="dash"))
+        type="line",
+        x0=range_end_disp,
+        y0=pv_min,
+        x1=range_end_disp,
+        y1=pv_max,
+        line=dict(color="orange", width=2, dash="dash"),
+    )
 
     if st.session_state.show_phases and not auc_phase_df.empty:
         _render_auc_phases(fig_auc, auc_phase_df, auc_cv, x_unit)
@@ -141,13 +166,15 @@ def render(selected_run_metas: list[dict]) -> None:
 
     st.plotly_chart(
         fig_auc,
-        width='stretch',
+        width="stretch",
         key=f"auc_chart_{auc_widget_key}",
     )
 
     auc_c1, auc_c2, auc_c3, auc_c4 = st.columns(4)
     auc_c1.metric("AUC", f"{auc_raw:,.2f} {amp_unit}.mL")
-    auc_c2.metric("Range", f"{range_start_disp:.2f} \u2013 {range_end_disp:.2f} {x_unit}")
+    auc_c2.metric(
+        "Range", f"{range_start_disp:.2f} \u2013 {range_end_disp:.2f} {x_unit}"
+    )
     auc_c3.metric("Duration", f"{dur_disp:.2f} {x_unit}")
     auc_c4.metric("Mass", f"{auc_conc:,.4f} mg")
 
@@ -161,8 +188,12 @@ def _sync_auc_range(x_unit, auc_phase_df, auc_cv, t_min, t_max):
         old_unit = st.session_state.auc_range_unit
         old_range = st.session_state.auc_range
         try:
-            new_start = convert_scalar(old_range[0], auc_phase_df, auc_cv, old_unit, x_unit)
-            new_end = convert_scalar(old_range[1], auc_phase_df, auc_cv, old_unit, x_unit)
+            new_start = convert_scalar(
+                old_range[0], auc_phase_df, auc_cv, old_unit, x_unit
+            )
+            new_end = convert_scalar(
+                old_range[1], auc_phase_df, auc_cv, old_unit, x_unit
+            )
             st.session_state.auc_range = (new_start, new_end)
         except (ValueError, TypeError):
             if x_unit == "min":
@@ -207,7 +238,8 @@ def _render_auc_phases(fig, auc_phase_df, auc_cv, x_unit):
         if e <= s:
             continue
         fig.add_vrect(
-            x0=s, x1=e,
+            x0=s,
+            x1=e,
             fillcolor=phase_colors(pname),
             line=dict(width=0),
             layer="below",
@@ -224,7 +256,8 @@ def _render_auc_phases(fig, auc_phase_df, auc_cv, x_unit):
         mid = (s + e) / 2
         pos = y_positions[idx % 3]
         fig.add_annotation(
-            x=mid, y=pos,
+            x=mid,
+            y=pos,
             xref="x",
             yref="paper",
             yanchor="bottom",

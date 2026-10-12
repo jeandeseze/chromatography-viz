@@ -1,0 +1,16 @@
+# Kudu zip-deploy filter (VS Code "Deploy to Web..." / `az webapp deploy --zip`).
+# Removes dev / VCS / bloat from the package.
+# IMPORTANT: this does NOT list ./data, so the self-contained dataset IS shipped.
+# (Kudu reads .deployignore, not .gitignore, so data/* being git-ignored is fine.)
+
+.git/
+.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+tests/
+azure/
+deployment.zip
+*.log
+.env

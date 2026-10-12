@@ -1,0 +1,13 @@
+version: "0.5"
+
+processes:
+  chromatography-viz:
+    namespace: viz
+    description: "Chromatography visualization Streamlit UI (pinned to :8502)"
+    command: "uv run streamlit run ./app.py --server.port 8502"
+    working_dir: "/home/jeandeseze/Python/chromatography-viz"
+    availability:
+      restart: "always"
+      backoff_seconds: 1
+      max_restarts: 10
+    log_location: "/home/jeandeseze/bin/logs/chromatography-viz.log"

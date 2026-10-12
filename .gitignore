@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv//__pycache__
+
+# Self-contained dataset (AKTA JSON exports): baked into the image at build
+# time, not committed. Drop new exports here before rebuilding.
+data/*
+!data/README.md

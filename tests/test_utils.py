@@ -6,10 +6,12 @@ from utils import (
     convert_scalar,
     convert_times,
     filter_phases,
+    format_channel_title,
     get_elution_start,
     get_phase_bounds,
     get_x_label,
     phase_colors,
+    unit_suffix,
 )
 
 
@@ -288,3 +290,41 @@ class TestPhaseColors:
         c1 = phase_colors("Equilibration")
         c2 = phase_colors("elution")
         assert c1 != c2
+
+
+# ── format_channel_title ────────────────────────────────────────────────────
+
+class TestFormatChannelTitle:
+    def test_appends_unit(self):
+        assert format_channel_title("Pressure", "MPa") == "Pressure (MPa)"
+
+    def test_no_unit(self):
+        assert format_channel_title("Pressure", "") == "Pressure"
+
+    def test_none_unit(self):
+        assert format_channel_title("Pressure", None) == "Pressure"
+
+    def test_unit_already_in_name_not_duplicated(self):
+        assert format_channel_title("Flow (CV/h)", "CV/h") == "Flow (CV/h)"
+
+    def test_unit_contained_in_name_not_duplicated(self):
+        assert format_channel_title("% Cond", "%") == "% Cond"
+
+    def test_unit_stripped(self):
+        assert format_channel_title("UV", " mAU ") == "UV (mAU)"
+
+
+# ── unit_suffix ─────────────────────────────────────────────────────────────
+
+class TestUnitSuffix:
+    def test_returns_space_prefixed_unit(self):
+        assert unit_suffix("MPa") == " MPa"
+
+    def test_empty(self):
+        assert unit_suffix("") == ""
+
+    def test_none(self):
+        assert unit_suffix(None) == ""
+
+    def test_stripped(self):
+        assert unit_suffix(" mS/cm ") == " mS/cm"
