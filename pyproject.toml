@@ -8,6 +8,7 @@ dependencies = [
     "plotly>=5.0.0",
     "pandas>=2.1.0",
     "numpy>=1.26.0",
+    "streamlit-desktop-app>=0.3.4",
 ]
 
 [dependency-groups]
